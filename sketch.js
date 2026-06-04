@@ -30,24 +30,22 @@ function draw() {
 }
 
 function keyPressed() {
+  // C: nuevo caminante
   if (key === 'c' || key === 'C') {
     background('#f0ece0');
     c = new Caminante();
     loop();
   }
-
   // R: reiniciar lienzo
   if (key === 'r' || key === 'R') {
     background('#f0ece0');
     c = new Caminante();
     loop();
   }
-
   // A: inclinar atracción hacia arriba
   if (key === 'a' || key === 'A') {
     c.biasY = 'top';
   }
-
   // I: inclinar atracción hacia abajo
   if (key === 'i' || key === 'I') {
     c.biasY = 'bottom';
