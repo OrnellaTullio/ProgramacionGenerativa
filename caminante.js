@@ -3,6 +3,9 @@ class Caminante {
     constructor() {
         this.zona = 'full';
  
+        // biasY: null = centro, 'top' = atracción hacia arriba, 'bottom' = hacia abajo
+        this.biasY = null;
+ 
         this.x = random(width * 0.2, width * 0.8);
         this.y = random(height * 0.2, height * 0.8);
         this.velBase = 3 + random(2);
@@ -32,30 +35,37 @@ class Caminante {
         this.tiempoBorde = 0;
         this.dirBorde = 0;
  
-        this.fuerzaCentro = 0.018;
+        // fuerza de atracción al centro horizontal (x)
+        this.fuerzaCentroX = 0.018;
+        // fuerza de atracción vertical: se incrementa con biasY
+        this.fuerzaCentroY = 0.018;
  
         // ── BRUSH STAMP ──────────────────────────────────────────────
         this.brushImg = brushImages[int(random(brushImages.length))];
-        this.stampW = 30;
+        this.stampW   = 30;
         this.stampSep = 3;
         this.distAcum = 0;
- 
         this.tiempoCambioBrush = int(random(30, 120));
     }
  
-    zonaBounds() {
-        if (this.zona === 'top')    return { yMin: 0,            yMax: height * 0.5 };
-        if (this.zona === 'bottom') return { yMin: height * 0.5, yMax: height };
-        return { yMin: 0, yMax: height };
+    // Devuelve el punto de atracción según biasY
+    // Sin bias → centro de la pantalla
+    // 'top'    → cuarto superior
+    // 'bottom' → cuarto inferior
+    puntoAtraccion() {
+        let cx = width / 2;
+        let cy;
+        if (this.biasY === 'top')    cy = height * 0.18;
+        else if (this.biasY === 'bottom') cy = height * 0.82;
+        else                         cy = height / 2;
+        return { cx, cy };
     }
  
-    // velBoost: multiplicador de velocidad (1 = normal, 3 = rápido, 0.3 = lento)
     actualizar(velBoost = 1) {
  
         this.px = this.x;
         this.py = this.y;
  
-        // Aplicar boost de velocidad
         this.vel = this.velBase * velBoost;
  
         this.tiempoCambioBrush--;
@@ -64,10 +74,11 @@ class Caminante {
             this.tiempoCambioBrush = int(random(15, 60));
         }
  
-        const b = this.zonaBounds();
-        const cx = width / 2;
-        const cy = (b.yMin + b.yMax) / 2;
         const margen = 2;
+        const { cx, cy } = this.puntoAtraccion();
+ 
+        // Fuerza de atracción: más intensa cuando hay bias
+        let fuerzaBase = (this.biasY !== null) ? 0.055 : 0.018;
  
         if (this.estadoBorde === 'siguiendo') {
             this.x += this.vel * cos(this.dirBorde);
@@ -76,15 +87,16 @@ class Caminante {
             this.tiempoBorde--;
  
             this.x = constrain(this.x, margen, width - margen);
-            this.y = constrain(this.y, b.yMin + margen, b.yMax - margen);
+            this.y = constrain(this.y, margen, height - margen);
  
             if (this.tiempoBorde <= 0) {
                 this.estadoBorde = null;
-                let angCentro = atan2(cy - this.y, cx - this.x);
-                this.dir = lerpAngle(this.dir, angCentro, 0.35);
+                let angAtrac = atan2(cy - this.y, cx - this.x);
+                this.dir = lerpAngle(this.dir, angAtrac, 0.35);
             }
  
         } else {
+            // estados recta / curva
             if (this.estado === 'recta') {
                 this.cuentaRegresiva--;
                 if (this.cuentaRegresiva <= 0) {
@@ -101,15 +113,17 @@ class Caminante {
                 }
             }
  
-            let angCentro = atan2(cy - this.y, cx - this.x);
-            let distCentro = dist(this.x, this.y, cx, cy);
-            let maxDist = dist(0, 0, width / 2, (b.yMax - b.yMin) / 2);
-            let peso = map(distCentro, 0, maxDist, 0, this.fuerzaCentro);
-            this.dir = lerpAngle(this.dir, angCentro, peso);
+            // Atracción hacia el punto objetivo (suave, distancia-proporcional)
+            let angAtrac  = atan2(cy - this.y, cx - this.x);
+            let distAtrac = dist(this.x, this.y, cx, cy);
+            let maxDist   = dist(0, 0, width / 2, height / 2);
+            let peso      = map(distAtrac, 0, maxDist, 0, fuerzaBase);
+            this.dir      = lerpAngle(this.dir, angAtrac, peso);
  
             this.x += this.vel * cos(this.dir);
             this.y += this.vel * sin(this.dir);
  
+            // rebotar en los 4 bordes del canvas (sin restricción de zona)
             let tocaBorde = false;
             if (this.x <= margen) {
                 this.x = margen;
@@ -119,12 +133,12 @@ class Caminante {
                 this.x = width - margen;
                 tocaBorde = true;
                 this.dirBorde = (sin(this.dir) < 0) ? -HALF_PI : HALF_PI;
-            } else if (this.y <= b.yMin + margen) {
-                this.y = b.yMin + margen;
+            } else if (this.y <= margen) {
+                this.y = margen;
                 tocaBorde = true;
                 this.dirBorde = (cos(this.dir) < 0) ? PI : 0;
-            } else if (this.y >= b.yMax - margen) {
-                this.y = b.yMax - margen;
+            } else if (this.y >= height - margen) {
+                this.y = height - margen;
                 tocaBorde = true;
                 this.dirBorde = (cos(this.dir) < 0) ? PI : 0;
             }
@@ -163,6 +177,15 @@ class Caminante {
     reiniciarTiempo() {
         this.cuentaRegresiva = int(random(10, 80));
     }
+}
+ 
+function lerpAngle(a, b, t) {
+    let diff = b - a;
+    while (diff > PI)  diff -= TWO_PI;
+    while (diff < -PI) diff += TWO_PI;
+    return a + diff * t;
+}
+
 }
  
 // helper: interpolar ángulos por el camino más corto
