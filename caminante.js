@@ -1,187 +1,134 @@
 class Caminante {
 
-    constructor() {
-        this.zona = 'full';
-        this.biasY = null; // null | 'top' | 'bottom'
+    constructor(nx, ny, dir) {
+        this.x = nx + random(-3, 3);
+        this.y = ny + random(-3, 3);
+        this.dir = dir;
+        this.velBase = 1.2 + random(1.2);
 
-        this.x = random(width * 0.2, width * 0.8);
-        this.y = random(height * 0.2, height * 0.8);
-        this.vel = 3 + random(2);
-        this.velBase = this.vel;
-        this.dir = random(TWO_PI);
+        this.vida = 600;
+        this.recorrido = 0;
+        this.dead = false;
 
         this.estado = 'recta';
-        this.anguloGiro = radians(3) * (random(1) < 0.5 ? 1 : -1);
-        this.cuentaRegresiva = int(random(10, 80));
+        this.anguloGiro = radians(random(3, 8)) * (random(1) < 0.5 ? 1 : -1);
+        this.cuenta = int(random(8, 35));
+
+        this.noiseOffset = random(1000);
 
         this.px = this.x;
         this.py = this.y;
 
-        push();
-        colorMode(HSB, 360, 100, 100);
-        this.elColor = color(random(30), 15, 15);
-        pop();
+        this.esGrueso = random(1) < 0.25;
 
-        this.alpha = random(140, 220);
-        this.grosor = random(0.8, 2.8);
-
-        this.vida = random(12000, 18000);
-        this.recorrido = 0;
-        this.muerto = false;
-
-        this.estadoBorde = null;
-        this.tiempoBorde = 0;
-        this.dirBorde = 0;
-
-        // fuerza de atracción al centro — suave pero suficiente para alejar de bordes
-        this.fuerzaCentro = 0.04;
-
-        this.brushImg = brushImages[int(random(brushImages.length))];
-        this.stampW = 30;
-        this.stampSep = 3;
-        this.distAcum = 0;
-        this.tiempoCambioBrush = int(random(30, 120));
+        this.targetNucleus = null;
+        this.pickTarget();
     }
 
-    zonaBounds() {
-        if (this.zona === 'top')    return { yMin: 0,            yMax: height * 0.5 };
-        if (this.zona === 'bottom') return { yMin: height * 0.5, yMax: height };
-        return { yMin: 0, yMax: height };
+    pickTarget() {
+        let far = nuclei.filter(n => dist(this.x, this.y, n.x, n.y) > width * 0.2);
+        this.targetNucleus = far.length > 0 ? random(far) : random(nuclei);
+    }
+
+    lerpAngle(a, b, t) {
+        let d = b - a;
+        while (d > PI)  d -= TWO_PI;
+        while (d < -PI) d += TWO_PI;
+        return a + d * t;
     }
 
     actualizar(velBoost) {
         if (velBoost === undefined) velBoost = 1;
-
         this.px = this.x;
         this.py = this.y;
 
-        this.vel = this.velBase * velBoost;
+        let vel = this.velBase * velBoost;
 
-        this.tiempoCambioBrush--;
-        if (this.tiempoCambioBrush <= 0) {
-            this.brushImg = brushImages[int(random(brushImages.length))];
-            this.tiempoCambioBrush = int(random(15, 60));
-        }
+        let noiseVal = noise(this.x * 0.003, this.y * 0.003, this.noiseOffset);
+        let noisePush = map(noiseVal, 0, 1, -radians(2), radians(2));
+        this.noiseOffset += 0.006;
 
-        const b = this.zonaBounds();
-        const margen = 2;
-
-        // punto de atracción según bias
-        const cx = width / 2;
-        let cy;
-        if (this.biasY === 'top')         cy = height * 0.25;
-        else if (this.biasY === 'bottom') cy = height * 0.75;
-        else                              cy = (b.yMin + b.yMax) / 2;
-
-        let fuerzaActual = (this.biasY !== null) ? 0.06 : this.fuerzaCentro;
-
-        if (this.estadoBorde === 'siguiendo') {
-            this.x += this.vel * cos(this.dirBorde);
-            this.y += this.vel * sin(this.dirBorde);
-            this.dir = this.dirBorde;
-            this.tiempoBorde--;
-
-            this.x = constrain(this.x, margen, width - margen);
-            this.y = constrain(this.y, b.yMin + margen, b.yMax - margen);
-
-            if (this.tiempoBorde <= 0) {
-                this.estadoBorde = null;
-                // al salir del borde girar hacia el centro
-                let angCentro = atan2(cy - this.y, cx - this.x);
-                this.dir = lerpAngle(this.dir, angCentro, 0.5);
-            }
-
-        } else {
-            // estados recta / curva — igual que el original
-            if (this.estado === 'recta') {
-                this.cuentaRegresiva--;
-                if (this.cuentaRegresiva <= 0) {
-                    this.estado = 'curva';
-                    this.anguloGiro = radians(3) * (random(1) < 0.5 ? 1 : -1);
-                    this.reiniciarTiempo();
-                }
-            } else {
-                this.dir += this.anguloGiro;
-                this.cuentaRegresiva--;
-                if (this.cuentaRegresiva <= 0) {
+        if (this.estado === 'recta') {
+            this.cuenta--;
+            if (this.cuenta <= 0) {
+                // modoCaos: más quiebres abruptos y más angulares
+                // fluido: más curvas suaves
+                let probQuiebre = modoCaos ? 0.65 : 0.25;
+                if (random(1) < probQuiebre) {
+                    let rango = modoCaos ? random(70, 115) : random(50, 85);
+                    let angBrusco = radians(rango) * (random(1) < 0.5 ? 1 : -1);
+                    this.dir += angBrusco;
                     this.estado = 'recta';
-                    this.reiniciarTiempo();
+                    this.cuenta = int(random(6, modoCaos ? 20 : 30));
+                } else {
+                    this.estado = 'curva';
+                    let maxAng = modoCaos ? 12 : 6;
+                    this.anguloGiro = radians(random(2, maxAng)) * (random(1) < 0.5 ? 1 : -1);
+                    this.cuenta = int(random(10, modoCaos ? 25 : 40));
                 }
             }
-
-            // atracción al punto objetivo: peso crece con la distancia al centro
-            let angCentro = atan2(cy - this.y, cx - this.x);
-            let distCentro = dist(this.x, this.y, cx, cy);
-            let maxDist = dist(0, 0, width / 2, (b.yMax - b.yMin) / 2);
-            let peso = map(distCentro, 0, maxDist, 0, fuerzaActual);
-            this.dir = lerpAngle(this.dir, angCentro, peso);
-
-            // repulsión de bordes: suave, solo en la franja de 60px, máximo 0.12
-            // — fija, no escala con la velocidad —
-            let fr = 60;
-            if (this.x < fr)              this.dir = lerpAngle(this.dir, 0,        map(this.x, 0, fr, 0.12, 0));
-            if (this.x > width - fr)      this.dir = lerpAngle(this.dir, PI,       map(this.x, width - fr, width, 0, 0.12));
-            if (this.y < b.yMin + fr)     this.dir = lerpAngle(this.dir, HALF_PI,  map(this.y, b.yMin, b.yMin + fr, 0.12, 0));
-            if (this.y > b.yMax - fr)     this.dir = lerpAngle(this.dir, -HALF_PI, map(this.y, b.yMax - fr, b.yMax, 0, 0.12));
-
-            this.x += this.vel * cos(this.dir);
-            this.y += this.vel * sin(this.dir);
-
-            // detección de borde — igual que el original
-            let tocaBorde = false;
-            if (this.x <= margen) {
-                this.x = margen; tocaBorde = true;
-                this.dirBorde = (sin(this.dir) < 0) ? -HALF_PI : HALF_PI;
-            } else if (this.x >= width - margen) {
-                this.x = width - margen; tocaBorde = true;
-                this.dirBorde = (sin(this.dir) < 0) ? -HALF_PI : HALF_PI;
-            } else if (this.y <= b.yMin + margen) {
-                this.y = b.yMin + margen; tocaBorde = true;
-                this.dirBorde = (cos(this.dir) < 0) ? PI : 0;
-            } else if (this.y >= b.yMax - margen) {
-                this.y = b.yMax - margen; tocaBorde = true;
-                this.dirBorde = (cos(this.dir) < 0) ? PI : 0;
-            }
-
-            if (tocaBorde) {
-                this.estadoBorde = 'siguiendo';
-                this.tiempoBorde = int(random(15, 50));
+        } else if (this.estado === 'curva') {
+            this.dir += this.anguloGiro;
+            this.anguloGiro += random(-radians(0.5), radians(0.5));
+            let limAng = modoCaos ? 14 : 8;
+            this.anguloGiro = constrain(this.anguloGiro, radians(-limAng), radians(limAng));
+            this.cuenta--;
+            if (this.cuenta <= 0) {
+                this.estado = 'recta';
+                this.cuenta = int(random(8, 35));
             }
         }
 
-        let dx = this.x - this.px;
-        let dy = this.y - this.py;
-        let paso = sqrt(dx * dx + dy * dy);
-        this.recorrido += paso;
-        this.distAcum  += paso;
+        this.dir += noisePush;
 
-        if (this.recorrido >= this.vida) this.muerto = true;
+        if (this.targetNucleus) {
+            let angTarget = atan2(this.targetNucleus.y - this.y, this.targetNucleus.x - this.x);
+            let distTarget = dist(this.x, this.y, this.targetNucleus.x, this.targetNucleus.y);
+            let atrac = map(distTarget, 0, 400, 0.001, 0.025);
+            this.dir = this.lerpAngle(this.dir, angTarget, atrac);
+            if (distTarget < 35) this.pickTarget();
+        }
+
+        let fr = 55;
+        if (this.x < fr)           this.dir = this.lerpAngle(this.dir, 0,        map(this.x, 0, fr, 0.2, 0));
+        if (this.x > width - fr)   this.dir = this.lerpAngle(this.dir, PI,       map(this.x, width - fr, width, 0, 0.2));
+        if (this.y < fr)           this.dir = this.lerpAngle(this.dir, HALF_PI,  map(this.y, 0, fr, 0.2, 0));
+        if (this.y > height - fr)  this.dir = this.lerpAngle(this.dir, -HALF_PI, map(this.y, height - fr, height, 0, 0.2));
+
+        this.x += vel * cos(this.dir);
+        this.y += vel * sin(this.dir);
+        this.x = constrain(this.x, 2, width - 2);
+        this.y = constrain(this.y, 2, height - 2);
+
+        let paso = dist(this.x, this.y, this.px, this.py);
+        this.recorrido += paso;
+        if (this.recorrido >= this.vida) this.dead = true;
     }
 
     dibujar() {
-        if (this.distAcum < this.stampSep) return;
-        this.distAcum = 0;
+        let minDist = Infinity;
+        for (let n of nuclei) {
+            let d = dist(this.x, this.y, n.x, n.y);
+            if (d < minDist) minDist = d;
+        }
 
-        let sw = this.stampW * this.grosor * random(0.9, 1.1);
-        let sh = sw * (this.brushImg.height / this.brushImg.width);
+        let maxR = (width / (COLS + 1)) * 0.9;
+        let zonaGruesa = maxR * 0.3;
 
-        push();
-        tint(255, this.alpha);
-        translate(this.x, this.y);
-        rotate(this.dir);
-        imageMode(CENTER);
-        image(this.brushImg, 0, 0, sw, sh);
-        pop();
+        let sw, alpha;
+
+        if (minDist < zonaGruesa) {
+            let swBase = map(minDist, 0, zonaGruesa, 5.0, 2.0, true);
+            let boost  = this.esGrueso ? map(minDist, 0, zonaGruesa, 5.0, 0.0, true) : 0;
+            sw    = swBase + boost;
+            alpha = map(minDist, 0, zonaGruesa, 230, 180, true);
+        } else {
+            sw    = map(minDist, zonaGruesa, maxR, 2.0, 0.6, true);
+            alpha = map(minDist, zonaGruesa, maxR, 180, 120, true);
+        }
+
+        stroke(20, 18, 30, alpha);
+        strokeWeight(sw);
+        line(this.px, this.py, this.x, this.y);
     }
-
-    reiniciarTiempo() {
-        this.cuentaRegresiva = int(random(10, 80));
-    }
-}
-
-function lerpAngle(a, b, t) {
-    let diff = b - a;
-    while (diff > PI)  diff -= TWO_PI;
-    while (diff < -PI) diff += TWO_PI;
-    return a + diff * t;
 }
